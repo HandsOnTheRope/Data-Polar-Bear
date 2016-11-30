@@ -1,0 +1,153 @@
+---
+title: "Random Forest of Death"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### A.K.A. Titanic Attendance Sheet
+
+## Overview
+
+This document outlines the process of creating a Random Forest predictive model in R. Our model will attempt to predict whether or not a passenger on the Titanic would have survived based on the information they provided before boarding.
+
+
+To construt our model, we have already downloaded the following packages: rpart, rattle, caret, ROCR, and randomForest. We have also cleaned our data so that there are no missing variables.
+
+```{r data, echo = FALSE, message = FALSE, results='hide'}
+
+# Library for decision trees
+    library(rpart)
+    #library(party)
+    library(rattle)
+    #library(rpart.plot)
+    library(caret)
+
+#Library for ROC curves
+    library(ROCR)
+
+#Library for Random Forest
+    library(randomForest)
+
+# Reference user-generated functions to partition data
+    source("C:/Users/michnelson/Desktop/Analytics Training/R Exercise/myfunctions.R")
+    
+    
+#################### IMPORT AND CLEAN DATA ########################
+    
+
+
+# Use the train data,  load here make na blank
+    data <- read.csv("C:/Users/michnelson/Desktop/Analytics Training/R Exercise/train.csv", header = TRUE, na.strings=c(""))
+
+
+# Check for missing values
+    sapply(data,function(x) sum(is.na(x)))
+
+# Age has too many missing values, but is most likely important, we will replace the NA with the average for the data set
+    data$Age[is.na(data$Age)] <- mean(data$Age,na.rm=T)
+
+# Add replace missing values in Embarked with S
+    which(is.na(data$Embarked))
+    data$Embarked[c(62,830)] = "S"
+
+# Make Pclass a factor
+    data$Pclass <- factor(data$Pclass, ordered = TRUE, levels = c("3","2","1"))
+    levels(data$Pclass) <- c("Third Class", "Second Class", "First Class")
+
+```
+
+## Partition the Data
+
+When using decision trees or random forest modeling, it is important to divide your data between a training dataset and a test dataset. The training dataset is what we will use to construct our model. The tesing dataset allows us to see how effectively our model can predict the results of unexamined data.
+
+```{r}
+# Split the data into two sets
+# 50% of the sample size
+    smp_size <- floor(0.5 * nrow(data))
+
+# Set the seed to make your partition reproductible
+    set.seed(100)
+    trainindex <- sample(seq_len(nrow(data)), size = smp_size)
+    
+    train <- data[trainindex, ]
+    test <- data[-trainindex, ]
+```
+
+
+## Create a Random Forest Model
+
+For any random forest model, it is okay to include all available variables. Rather than the user deciding which variables are important, random forest models will automatically optimize and rank the most influential variables.
+
+This model will examine whether or not someone survived based on their social class, sex, age, number of siblings and spouse on board, number of parents and children on board, ticket price, and embarking location.
+
+The model will use the train dataset to create 1000 decisions trees. The random forest will use the findings of the decisions trees to develop a categorizing process for predicted survival.
+
+```{r}
+# Random Forest
+    fit <- randomForest(as.factor(Survived) ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked, data = train, importance = TRUE, ntree = 1000)
+```
+
+Below is the plot of our random forest. We can see how our error rate decreases and plateaus as we examine more decision trees.
+
+```{r}
+    plot(fit)
+```
+
+Next, we can review which variables had the most useful predictive value for assessing whether someone will survive or not on the Titanic.
+
+```{r}
+# Analyze importance of explanatory variables
+    importance(fit)
+    varImpPlot(fit)
+```
+
+
+## Testing the Random Forest
+
+Here we will use the categorizing process of the random forest produced with the train dataset to predict who survived from the test dataset.
+
+First, we must create a data frame of predictions for the test data, based on the random forest model.
+
+```{r}
+    pred_data <- data.frame(predict(fit, test, type = "class"))
+
+```
+
+Second, we can conduct a simple misclassificaiton test. This tells us the broad accuracy of our model, which is when the predicted value matches the actual value for a passenger's survival status.
+
+```{r}
+      misclassificationError <- mean(pred_data != test$Survived)
+      print(paste('Accuracy',1-misclassificationError))
+```
+
+Third, we will construct a confusion matrix to analyze how often our correct guesses are True-Positives and True-Negatives. A confusion matrix also allows us to see how often our model produces False-Positives and False-Negatives.
+
+```{r}
+      confusionmat <- confusionMatrix(pred_data[[1]],test$Survived)
+      confusionmat
+
+```
+
+Fourth (and finally), a ROC curve will let us review an aggregate result of the confusion matrices that our model produces when we put increasing priority on predicting True-Positives or True-Negatives. A better model has a larger area under the curve (AUC) as we trace the results of these prioritizations.
+
+```{r}
+      predroc <- data.frame(predict(fit, test, type = "prob"))
+      pr <- prediction(predroc[2], test$Survived)
+      prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+      plot(prf)
+      
+      auc <- performance(pr, measure = "auc")
+      auc <- auc@y.values[[1]]
+      auc
+
+```
+
+![Random Forest Model](C:/Users/michnelson/Desktop/Random Forest Titanic.png)
+
+
+## We Made It!!
